@@ -39,6 +39,7 @@ class ImageGpsSync : public rclcpp::Node
 {
 public:
   std::ofstream file_;
+  std::ofstream file2_;
   uint64_t trigger_counter = 0;
   ImageGpsSync()
   : Node("image_gps_sync")
@@ -49,6 +50,10 @@ public:
     } else {
       // RCLCPP_INFO(get_logger(), "File opened successfully.");
     }
+    file2_.open("/home/sarv-pi/TRIGGER_GPS_LOGS/output.txt", std::ios::out | std::ious::app);
+    if (!file2_){
+      RCLCPP_ERROR(get_logger(), "Failed to open file for writing!");
+    }
     rmw_qos_profile_t qos_profile2 = rmw_qos_profile_sensor_data;
     auto qos2 = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile2.history, 10), qos_profile2);
 
@@ -56,21 +61,27 @@ public:
       "/fmu/out/camera_trigger", qos2,
       [&](CameraTrigger::UniquePtr msg){
         // RCLCPP_INFO(get_logger(), "[CameraTrigger] trigger!");
-        trigger_counter +=1;
+        trigger_counter = msg->seq;
         last_trigger_us_ = msg->timestamp;
         auto gpsCoord = GetGPS(delay);
 	auto vehicleAttitude = GetAttitude(delay);
         if (gpsCoord){
 		if (vehicleAttitude){
-			file_ << std::setprecision(std::numeric_limits<double>::max_digits10) << msg->seq << "," << gpsCoord->latitude_deg << "," << gpsCoord->longitude_deg 
+			file_ << std::setprecision(std::numeric_limits<double>::max_digits10) << trigger_counter << "," << gpsCoord->latitude_deg << "," << gpsCoord->longitude_deg 
+                		<< "," << gpsCoord->altitude_msl_m << "," << gpsCoord->heading << "," <<  gpsCoord-> timestamp;
+      file2_ << std::setprecision(std::numeric_limits<double>::max_digits10) << trigger_counter << "," << gpsCoord->latitude_deg << "," << gpsCoord->longitude_deg 
                 		<< "," << gpsCoord->altitude_msl_m << "," << gpsCoord->heading << "," <<  gpsCoord-> timestamp;
 			for(int m = 0; m < 4; m++){
 				file_ << std::setprecision(std::numeric_limits<double>::max_digits10) << "," << vehicleAttitude->q[m] << "," << vehicleAttitude->delta_q_reset[m];
+        file2_ << std::setprecision(std::numeric_limits<double>::max_digits10) << "," << vehicleAttitude->q[m] << "," << vehicleAttitude->delta_q_reset[m];
 			}
 			file_ << std::endl;
+      file2_ << std::endl;
 		}
 		else{
         		file_ << std::setprecision(std::numeric_limits<double>::max_digits10) << trigger_counter << "," << gpsCoord->latitude_deg << "," << gpsCoord->longitude_deg 
+                	<< "," << gpsCoord->altitude_msl_m << "," << gpsCoord->heading << "," <<  gpsCoord-> timestamp << std::endl;
+            file2_ << std::setprecision(std::numeric_limits<double>::max_digits10) << trigger_counter << "," << gpsCoord->latitude_deg << "," << gpsCoord->longitude_deg 
                 	<< "," << gpsCoord->altitude_msl_m << "," << gpsCoord->heading << "," <<  gpsCoord-> timestamp << std::endl;
 		}
           // RCLCPP_INFO(get_logger(), "[CameraTrigger] GPS MATCH on seq %d!", msg->seq);
@@ -197,6 +208,7 @@ int main(int argc, char ** argv)
   auto node = std::make_shared<ImageGpsSync>();
   rclcpp::spin(node);
   node->file_.close();
+  node->file2_.close();
   rclcpp::shutdown();
   return 0;
 }
