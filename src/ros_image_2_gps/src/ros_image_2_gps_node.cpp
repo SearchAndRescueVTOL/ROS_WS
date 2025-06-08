@@ -1,7 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <px4_msgs/msg/camera_trigger.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
-#include <px4_msgs/msg/sensor_gps.hpp>
+#include <px4_msgs/msg/vehicle_global_position.hpp>
 #include <px4_msgs/msg/vehicle_attitude.hpp>
 #include <chrono>
 #include <ctime>
@@ -12,9 +12,10 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <inttypes.h> 
 using CameraTrigger = px4_msgs::msg::CameraTrigger;
-using NavSatFix = px4_msgs::msg::SensorGps;
+using NavSatFix = px4_msgs::msg::VehicleGlobalPosition;
 using VehicleAttitude = px4_msgs::msg::VehicleAttitude;
 std::string getFormattedTimestamp() {
     using namespace std::chrono;
@@ -50,7 +51,7 @@ public:
     } else {
       // RCLCPP_INFO(get_logger(), "File opened successfully.");
     }
-    file2_.open("/home/sarv-pi/TRIGGER_GPS_LOGS/output.txt", std::ios::out | std::ious::app);
+    file2_.open("/home/sarv-pi/TRIGGER_GPS_LOGS/output.txt", std::ios::out | std::ios::app);
     if (!file2_){
       RCLCPP_ERROR(get_logger(), "Failed to open file for writing!");
     }
@@ -67,26 +68,33 @@ public:
 	auto vehicleAttitude = GetAttitude(delay);
         if (gpsCoord){
 		if (vehicleAttitude){
-			file_ << std::setprecision(std::numeric_limits<double>::max_digits10) << trigger_counter << "," << gpsCoord->latitude_deg << "," << gpsCoord->longitude_deg 
-                		<< "," << gpsCoord->altitude_msl_m << "," << gpsCoord->heading << "," <<  gpsCoord-> timestamp;
-      file2_ << std::setprecision(std::numeric_limits<double>::max_digits10) << trigger_counter << "," << gpsCoord->latitude_deg << "," << gpsCoord->longitude_deg 
-                		<< "," << gpsCoord->altitude_msl_m << "," << gpsCoord->heading << "," <<  gpsCoord-> timestamp;
+			file_ << std::setprecision(std::numeric_limits<double>::max_digits10) << trigger_counter << "," << gpsCoord->lat << "," << gpsCoord->lon 
+                		<< "," << gpsCoord->alt << "," << gpsCoord->eph << "," << gpsCoord->epv << "," << gpsCoord->dead_reckoning << "," <<  gpsCoord-> timestamp;
+      file2_ << std::setprecision(std::numeric_limits<double>::max_digits10) << trigger_counter << "," << gpsCoord->lat << "," << gpsCoord->lon 
+                		<< "," << gpsCoord->alt << "," << gpsCoord->eph << "," << gpsCoord->epv << "," << gpsCoord->dead_reckoning << "," <<  gpsCoord-> timestamp;
 			for(int m = 0; m < 4; m++){
-				file_ << std::setprecision(std::numeric_limits<double>::max_digits10) << "," << vehicleAttitude->q[m] << "," << vehicleAttitude->delta_q_reset[m];
-        file2_ << std::setprecision(std::numeric_limits<double>::max_digits10) << "," << vehicleAttitude->q[m] << "," << vehicleAttitude->delta_q_reset[m];
+				file_ << std::setprecision(std::numeric_limits<double>::max_digits10) << "," << vehicleAttitude->q[m];
+        file2_ << std::setprecision(std::numeric_limits<double>::max_digits10) << "," << vehicleAttitude->q[m];
 			}
+      for(int n=0; n < 4; n++){
+        file_ <<  "," << vehicleAttitude->delta_q_reset[n];
+        file2_ << "," << vehicleAttitude->delta_q_reset[n];
+
+      }
 			file_ << std::endl;
       file2_ << std::endl;
 		}
 		else{
-        		file_ << std::setprecision(std::numeric_limits<double>::max_digits10) << trigger_counter << "," << gpsCoord->latitude_deg << "," << gpsCoord->longitude_deg 
-                	<< "," << gpsCoord->altitude_msl_m << "," << gpsCoord->heading << "," <<  gpsCoord-> timestamp << std::endl;
-            file2_ << std::setprecision(std::numeric_limits<double>::max_digits10) << trigger_counter << "," << gpsCoord->latitude_deg << "," << gpsCoord->longitude_deg 
-                	<< "," << gpsCoord->altitude_msl_m << "," << gpsCoord->heading << "," <<  gpsCoord-> timestamp << std::endl;
+        		file_ << std::setprecision(std::numeric_limits<double>::max_digits10) << trigger_counter << "," << gpsCoord->lat << "," << gpsCoord->lon 
+                	<< "," << gpsCoord->alt << "," << gpsCoord->eph << "," << gpsCoord->epv << ","<< gpsCoord->dead_reckoning << "," <<  gpsCoord-> timestamp << std::endl;
+            file2_ << std::setprecision(std::numeric_limits<double>::max_digits10) << trigger_counter << "," << gpsCoord->lat << "," << gpsCoord->lon 
+                	<< "," << gpsCoord->alt << "," << gpsCoord->eph << "," << gpsCoord->epv << "," << gpsCoord->dead_reckoning << "," <<  gpsCoord-> timestamp << std::endl;
 		}
           // RCLCPP_INFO(get_logger(), "[CameraTrigger] GPS MATCH on seq %d!", msg->seq);
         }
         else{
+          file_ << "No GPS Fix!" << std::endl;
+          file2_ << "No GPS Fix!" << std::endl;
           // RCLCPP_INFO(get_logger(), "[CameraTrigger] no GPS match");
         }
       });
@@ -94,8 +102,8 @@ public:
     auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 5), qos_profile);
     
     gps_sub_ = create_subscription<NavSatFix>(
-      "/fmu/out/vehicle_gps_position", qos,
-      [this](const px4_msgs::msg::SensorGps::UniquePtr msg){
+      "/fmu/out/vehicle_global_position", qos,
+      [this](const px4_msgs::msg::VehicleGlobalPosition::UniquePtr msg){
         // RCLCPP_INFO(get_logger(), "Received GPS fix: lat=%.6f, lon=%.6f, alt=%.2f",
         //         msg->latitude_deg, msg->longitude_deg, msg->altitude_msl_m);
         gps_buffer_.push_back(*msg);
@@ -204,6 +212,7 @@ private:
 
 int main(int argc, char ** argv)
 {
+  std::this_thread::sleep_for(std::chrono::seconds(3));
   rclcpp::init(argc, argv);
   auto node = std::make_shared<ImageGpsSync>();
   rclcpp::spin(node);
